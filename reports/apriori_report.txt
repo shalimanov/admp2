@@ -1,0 +1,16 @@
+Apriori Report  (2025-05-21 09:20:30)
+Transactions: 9835
+Frequent itemsets: 122
+Rules generated: 37
+
+Top-10 rules by confidence:
+{'other vegetables'} -> {'whole milk'} sup=0.387 conf=0.075 lift=1.51
+{'rolls/buns'} -> {'whole milk'} sup=0.308 conf=0.057 lift=1.21
+{'yogurt'} -> {'whole milk'} sup=0.402 conf=0.056 lift=1.57
+{'root vegetables'} -> {'whole milk'} sup=0.449 conf=0.049 lift=1.76
+{'root vegetables'} -> {'other vegetables'} sup=0.435 conf=0.047 lift=2.25
+{'yogurt'} -> {'other vegetables'} sup=0.311 conf=0.043 lift=1.61
+{'tropical fruit'} -> {'whole milk'} sup=0.403 conf=0.042 lift=1.58
+{'tropical fruit'} -> {'other vegetables'} sup=0.342 conf=0.036 lift=1.77
+{'bottled water'} -> {'whole milk'} sup=0.311 conf=0.034 lift=1.22
+{'pastry'} -> {'whole milk'} sup=0.374 conf=0.033 lift=1.46

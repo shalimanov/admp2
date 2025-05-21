@@ -1,125 +1,147 @@
-
-"""Run all LAB2 algorithms and generate console output + simple text report.
-
-Usage:
-    python -m src.run_all
-"""
-import os, csv, urllib.request, time, math, random, statistics
+import os
+import time
+import csv
 from datetime import datetime
-from .apriori import apriori, generate_rules
-from .fpgrowth import fpgrowth
-from .clustering import KMeans, KMedians, AgglomerativeSingleLink, DBSCAN
+from collections import Counter
+
+from src.apriori import apriori, generate_rules
+from src.fpgrowth import fpgrowth
+from src.clustering import KMeans, KMedians, AgglomerativeSingleLink, DBSCAN
+
+# Для дендрограми
+from scipy.cluster.hierarchy import linkage, dendrogram
+import matplotlib.pyplot as plt
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 DATA_DIR = os.path.join(ROOT, "data")
-REPORT_PATH = os.path.join(ROOT, "report.txt")
+REPORT_DIR = os.path.join(ROOT, "reports")
+os.makedirs(REPORT_DIR, exist_ok=True)
 
-# URLs to raw CSV mirrors (no auth required)
-DATASETS = {
-    "groceries.csv": "https://raw.githubusercontent.com/stedy/Machine-Learning-with-R-datasets/master/groceries.csv",
-    "Mall_Customers.csv": "https://raw.githubusercontent.com/SawyerRen/mall-customer-segmentation-data/master/Mall_Customers.csv"
-}
-
-def download_if_missing():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    for fname, url in DATASETS.items():
-        path = os.path.join(DATA_DIR, fname)
-        if not os.path.exists(path):
-            print(f"[INFO] {fname} not found — downloading…")
-            try:
-                urllib.request.urlretrieve(url, path)
-                print(f"[OK]  Saved to data/{fname}")
-            except Exception as e:
-                print(f"[WARN] Could not download {fname}: {e}")
-                print(f"       Please place the file manually into data/ and rerun.")
-                continue
 
 def load_groceries():
     path = os.path.join(DATA_DIR, "groceries.csv")
     transactions = []
-    with open(path) as f:
+    with open(path, newline='') as f:
         reader = csv.reader(f)
         for row in reader:
-            if row:
-                transactions.append(set(item.strip() for item in row if item.strip()))
+            transactions.append(set(row))
     return transactions
+
 
 def load_mall():
     path = os.path.join(DATA_DIR, "Mall_Customers.csv")
     points = []
-    with open(path) as f:
+    with open(path, newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            try:
-                points.append((
-                    float(row["Annual Income (k$)"]),
-                    float(row["Spending Score (1-100)"])
-                ))
-            except KeyError:
-                # fallback for slightly different column names
-                points.append((
-                    float(row.get("Annual Income (k$)", row.get("Annual_Income_(k$)"))),
-                    float(row.get("Spending Score (1-100)", row.get("Spending_Score")))
-                ))
+            points.append((
+                float(row['Annual Income (k$)']),
+                float(row['Spending Score (1-100)'])
+            ))
     return points
 
-def rule_mining(transactions, report_lines):
-    report_lines.append("\n=== Association Rule Mining ===")
+
+def rule_mining(transactions):
     n_trans = len(transactions)
-    report_lines.append(f"Transactions: {n_trans}")
     # Apriori
     freq = apriori(transactions, 0.02)
     rules = generate_rules(freq, 0.3)
-    report_lines.append(f"Apriori — frequent itemsets: {len(freq)}, rules: {len(rules)}")
+    file_apriori = os.path.join(REPORT_DIR, "apriori_report.txt")
+    with open(file_apriori, "w") as f:
+        f.write(f"Apriori Report  ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})\n")
+        f.write(f"Transactions: {n_trans}\n")
+        f.write(f"Frequent itemsets: {len(freq)}\n")
+        f.write(f"Rules generated: {len(rules)}\n\n")
+        f.write("Top-10 rules by confidence:\n")
+        top_rules = sorted(rules, key=lambda x: x[2], reverse=True)[:10]
+        for antecedent, consequent, conf, support, lift in top_rules:
+            f.write(
+                f"{set(antecedent)} -> {set(consequent)} "
+                f"sup={support:.3f} conf={conf:.3f} lift={lift:.2f}\n"
+            )
     # FP-Growth
     freq_fp = fpgrowth(transactions, 0.02)
-    report_lines.append(f"FP‑Growth — frequent itemsets: {len(freq_fp)}")
-    # Top 10 rules
-    report_lines.append("Top‑10 rules by confidence:")
-    for a,c,sup,conf,lift in rules[:10]:
-        report_lines.append(f"{set(a)} -> {set(c)}  sup={sup:.3f}  conf={conf:.3f}  lift={lift:.2f}")
+    file_fpg = os.path.join(REPORT_DIR, "fpgrowth_report.txt")
+    with open(file_fpg, "w") as f:
+        f.write(f"FP-Growth Report  ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})\n")
+        f.write(f"Transactions: {n_trans}\n")
+        f.write(f"Frequent itemsets: {len(freq_fp)}\n")
+    return file_apriori, file_fpg
 
-def clustering_analysis(points, report_lines):
-    report_lines.append("\n=== Clustering Analysis (Mall Customers) ===")
-    report_lines.append(f"Samples: {len(points)}")
-    # KMeans and KMedians for k=2..8
-    report_lines.append("k, KMeans inertia, KMedians total L1")
-    for k in range(2,9):
-        km = KMeans(k, random_state=0).fit(points)
-        kmed = KMedians(k, random_state=0).fit(points)
-        report_lines.append(f"{k}, {km.inertia_:.2f}, {kmed.inertia_:.2f}")
-    # Hierarchical single‑link for k=5
-    ag = AgglomerativeSingleLink(5).fit(points)
-    clusters = len(set(ag.labels_))
-    report_lines.append(f"Single‑link hierarchical — k=5, clusters formed: {clusters}")
-    # DBSCAN heuristic eps
-    db = DBSCAN(eps=15, min_samples=5).fit(points)
-    n_clusters = len({lbl for lbl in db.labels_ if lbl != -1})
-    noise = sum(1 for lbl in db.labels_ if lbl == -1)
-    report_lines.append(f"DBSCAN eps=15, min_samples=5 — clusters: {n_clusters}, noise points: {noise}")
+
+def clustering_analysis(points):
+    file_clust = os.path.join(REPORT_DIR, "clustering_report.txt")
+    with open(file_clust, "w") as f:
+        f.write(f"Clustering Report  ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})\n")
+        f.write(f"Samples: {len(points)}\n\n")
+        f.write("k, KMeans inertia, KMedians total L1\n")
+        for k in range(2, 9):
+            km = KMeans(k, random_state=0).fit(points)
+            med = KMedians(k, random_state=0).fit(points)
+            labels_med = med.predict(points)
+            total_l1 = sum(
+                sum(abs(x - y) for x, y in zip(points[i], med.centroids[labels_med[i]]))
+                for i in range(len(points))
+            )
+            f.write(f"{k}, {km.inertia_:.2f}, {total_l1:.2f}\n")
+        # Ієрархічний single-link
+        ag = AgglomerativeSingleLink(5).fit(points)
+        labels_h = ag.labels_
+        n_h_clusters = len(set(labels_h))
+        f.write(f"\nSingle-link hierarchical — k=5, clusters formed: {n_h_clusters}\n")
+        sizes = Counter(labels_h)
+        f.write(f"  Cluster sizes: {list(sizes.values())}\n")
+        # DBSCAN
+        db = DBSCAN(eps=15, min_samples=5).fit(points)
+        labels_db = db.labels_
+        n_db_clusters = len({lbl for lbl in labels_db if lbl != -1})
+        noise = sum(1 for lbl in labels_db if lbl == -1)
+        f.write(f"DBSCAN eps=15, min_samples=5 — clusters: {n_db_clusters}, noise points: {noise}\n")
+        main_size = len(points) - noise
+        noise_idxs = [i for i, lbl in enumerate(labels_db) if lbl == -1]
+        f.write(f"  Main cluster size: {main_size}\n")
+        f.write(f"  Noise indices: {noise_idxs}\n")
+    return file_clust
+
+
+def plot_dendrogram(points, output_path):
+    """
+    Створює дендрограму single-link кластеризації та зберігає у файл.
+    """
+    Z = linkage(points, method='single', metric='euclidean')
+    plt.figure(figsize=(10, 5))
+    dendrogram(Z, leaf_rotation=90, leaf_font_size=8, no_labels=True)
+    plt.title("Single-Linkage Dendrogram")
+    plt.xlabel("Індекс зразка")
+    plt.ylabel("Відстань")
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
 
 def main():
     start = time.time()
-    download_if_missing()
-    report_lines = [f"LAB2 auto‑report  ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"]
-    # Rule mining
-    try:
-        groceries = load_groceries()
-        rule_mining(groceries, report_lines)
-    except Exception as e:
-        report_lines.append(f"[ERROR] Association rule section failed: {e}")
-    # Clustering
-    try:
-        mall = load_mall()
-        clustering_analysis(mall, report_lines)
-    except Exception as e:
-        report_lines.append(f"[ERROR] Clustering section failed: {e}")
-    # Write report
-    with open(REPORT_PATH, "w") as f:
-        f.write("\n".join(report_lines))
-    print("\n".join(report_lines))
-    print(f"\nReport saved to {REPORT_PATH}")
-    print(f"Total time: {time.time()-start:.1f}s")
+
+    # Ассоціативні правила
+    transactions = load_groceries()
+    file_apriori, file_fpg = rule_mining(transactions)
+
+    # Кластеризація
+    points = load_mall()
+    file_clust = clustering_analysis(points)
+
+    # Дендрограма
+    dendro_path = os.path.join(REPORT_DIR, "dendrogram.png")
+    plot_dendrogram(points, dendro_path)
+
+    elapsed = time.time() - start
+    print("Reports generated:")
+    print(f"  {file_apriori}")
+    print(f"  {file_fpg}")
+    print(f"  {file_clust}")
+    print(f"  {dendro_path}")
+    print(f"Total time: {elapsed:.2f}s")
+
 
 if __name__ == "__main__":
     main()
